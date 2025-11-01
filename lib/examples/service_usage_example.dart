@@ -1,11 +1,13 @@
-import 'package:fcleaner/app/service_provider.dart';
+import 'package:fcleaner/shared/services/service_provider.dart';
 import 'package:fcleaner/shared/utils/byte_formatter.dart';
 
 Future<void> main() async {
   final serviceProvider = ServiceProvider()..initialize();
 
+  final analysis = await serviceProvider.cleanupService.analyzeSystem();
+  print(analysis.categories.map((e) => e.id).toList());
   // await cleanupExample(serviceProvider);
-  await uninstallExample(serviceProvider);
+  // await uninstallExample(serviceProvider);
   // await diskAnalyzerExample(serviceProvider);
 }
 

@@ -3,6 +3,7 @@ import 'package:fcleaner/cleanup/models/analysis_result.dart';
 import 'package:fcleaner/cleanup/models/cleanup_category.dart';
 import 'package:fcleaner/cleanup/models/cleanup_result.dart';
 import 'package:fcleaner/shared/models/cleanup_progress.dart';
+import 'package:fcleaner/shared/models/system_info.dart';
 import 'package:fcleaner/shared/services/system_command_service.dart';
 import 'package:fcleaner/shared/services/whitelist_service.dart';
 
@@ -20,8 +21,13 @@ class CleanupService {
   Future<AnalysisResult> analyzeSystem() async {
     await _whitelistService.loadWhitelist();
 
-    final categories = await _datasource.scanAllCategories();
-    final systemInfo = await _systemCommandService.getSystemInfo();
+    final results = await Future.wait([
+      _datasource.scanAllCategories(),
+      _systemCommandService.getSystemInfo(),
+    ]);
+
+    final categories = results[0] as List<CleanupCategory>;
+    final systemInfo = results[1] as SystemInfo;
 
     return AnalysisResult(
       categories: categories,

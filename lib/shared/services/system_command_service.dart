@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:disk_usage/disk_usage.dart';
 import 'package:fcleaner/shared/exceptions/cleanup_exceptions.dart';
 import 'package:fcleaner/shared/models/system_info.dart';
 
@@ -50,17 +51,18 @@ class SystemCommandService {
 
   Future<SystemInfo> getSystemInfo() async {
     try {
-      final osVersion = await _getOSVersion();
-      final architecture = await _getArchitecture();
-      final homeDirectory = Platform.environment['HOME'] ?? '';
-      final diskInfo = await _getDiskInfo();
+      final results = await Future.wait([
+        _getOSVersion(),
+        _getArchitecture(),
+        _getDiskInfo(),
+      ]);
 
       return SystemInfo(
-        osVersion: osVersion,
-        architecture: architecture,
-        homeDirectory: homeDirectory,
-        totalDiskSpace: diskInfo['total'] ?? 0,
-        freeDiskSpace: diskInfo['free'] ?? 0,
+        osVersion: results[0] as String,
+        architecture: results[1] as String,
+        homeDirectory: Platform.environment['HOME'] ?? '',
+        totalDiskSpace: (results[2] as Map<String, int>)['total'] ?? 0,
+        freeDiskSpace: (results[2] as Map<String, int>)['free'] ?? 0,
       );
     } catch (e, stackTrace) {
       throw CleanupException(
@@ -97,23 +99,10 @@ class SystemCommandService {
 
   Future<Map<String, int>> _getDiskInfo() async {
     try {
-      final result = await Process.run('df', ['-k', '/']);
-      if (result.exitCode == 0) {
-        final lines = result.stdout.toString().split('\n');
-        if (lines.length > 1) {
-          final parts = lines[1].split(RegExp(r'\s+'));
-          if (parts.length >= 4) {
-            final total = int.tryParse(parts[1]) ?? 0;
-            final available = int.tryParse(parts[3]) ?? 0;
+      final totalSpace = await DiskUsage.space(DiskSpaceType.total);
+      final freeSpace = await DiskUsage.space(DiskSpaceType.free);
 
-            return {
-              'total': total * 1024,
-              'free': available * 1024,
-            };
-          }
-        }
-      }
-      return {'total': 0, 'free': 0};
+      return {'total': totalSpace ?? 0, 'free': freeSpace ?? 0};
     } catch (_) {
       return {'total': 0, 'free': 0};
     }

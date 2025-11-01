@@ -22,21 +22,21 @@ class MacOSCleanupDatasource {
   late final String _homeDir;
 
   Future<List<CleanupCategory>> scanAllCategories() async {
-    final categories = <CleanupCategory>[];
     final systemInfo = await _systemCommandService.getSystemInfo();
 
-    categories
-      ..add(await _scanSystemEssentials())
-      ..add(await _scanMacOSSystemCaches())
-      ..add(await _scanSandboxedApps())
-      ..add(await _scanBrowsers())
-      ..add(await _scanCloudStorage())
-      ..add(await _scanOfficeApps())
-      ..add(await _scanDeveloperTools())
-      ..add(await _scanExtendedDevTools())
-      ..add(await _scanApplications())
-      ..add(await _scanVirtualization())
-      ..add(await _scanOrphanedData());
+    final categories = await Future.wait([
+      _scanSystemEssentials(),
+      _scanMacOSSystemCaches(),
+      _scanSandboxedApps(),
+      _scanBrowsers(),
+      _scanCloudStorage(),
+      _scanOfficeApps(),
+      _scanDeveloperTools(),
+      _scanExtendedDevTools(),
+      _scanApplications(),
+      _scanVirtualization(),
+      _scanOrphanedData(),
+    ]);
 
     if (systemInfo.isAppleSilicon) {
       categories.add(await _scanAppleSilicon());
