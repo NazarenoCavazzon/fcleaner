@@ -10,13 +10,6 @@ class CleanupCategories extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final homeCubit = context.read<HomeCubit>();
-    final analysisResult = homeCubit.state.cleanUpAnalysis;
-    final categories = analysisResult.nonEmptyCategories
-      ..sort(
-        (a, b) => b.totalSize.compareTo(a.totalSize),
-      );
-
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -35,25 +28,36 @@ class CleanupCategories extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              late final int crossAxisCount;
+          BlocBuilder<HomeCubit, HomeState>(
+            buildWhen: (previous, current) =>
+                previous.cleanUpAnalysis != current.cleanUpAnalysis,
+            builder: (context, state) {
+              final categories = state.cleanUpAnalysis.nonEmptyCategories
+                ..sort(
+                  (a, b) => b.totalSize.compareTo(a.totalSize),
+                );
 
-              switch (constraints.maxWidth) {
-                case >= 800:
-                  crossAxisCount = 2;
-                default:
-                  crossAxisCount = 1;
-              }
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  late final int crossAxisCount;
 
-              return AlignedGridView.count(
-                shrinkWrap: true,
-                crossAxisCount: crossAxisCount,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 8,
-                itemCount: categories.length,
-                itemBuilder: (context, index) =>
-                    CleanupCategoryCard(categories[index]),
+                  switch (constraints.maxWidth) {
+                    case >= 800:
+                      crossAxisCount = 2;
+                    default:
+                      crossAxisCount = 1;
+                  }
+
+                  return AlignedGridView.count(
+                    shrinkWrap: true,
+                    crossAxisCount: crossAxisCount,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 8,
+                    itemCount: categories.length,
+                    itemBuilder: (context, index) =>
+                        CleanupCategoryCard(categories[index]),
+                  );
+                },
               );
             },
           ),
@@ -86,21 +90,25 @@ class CleanupCategoryCard extends StatelessWidget {
               final isSelected = state.selectedCategories[category.id] ?? false;
 
               /// TODO: Add a custom checkbox widget
-              return SizedBox(
-                width: 24,
-                height: 24,
-                child: Checkbox(
-                  hoverColor: Colors.transparent,
-                  focusColor: Colors.transparent,
-                  overlayColor: WidgetStateProperty.all(Colors.transparent),
-                  activeColor: Theme.of(context).colorScheme.primary,
-                  checkColor: Theme.of(context).colorScheme.onPrimary,
-                  side: BorderSide(
-                    color: Theme.of(context).colorScheme.outline,
+              return MouseRegion(
+                hitTestBehavior: HitTestBehavior.opaque,
+                cursor: SystemMouseCursors.click,
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: Checkbox(
+                    hoverColor: Colors.transparent,
+                    focusColor: Colors.transparent,
+                    overlayColor: WidgetStateProperty.all(Colors.transparent),
+                    activeColor: Theme.of(context).colorScheme.primary,
+                    checkColor: Theme.of(context).colorScheme.onPrimary,
+                    side: BorderSide(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                    value: isSelected,
+                    onChanged: (value) =>
+                        context.read<HomeCubit>().selectCategory(category.id),
                   ),
-                  value: isSelected,
-                  onChanged: (value) =>
-                      context.read<HomeCubit>().selectCategory(category.id),
                 ),
               );
             },

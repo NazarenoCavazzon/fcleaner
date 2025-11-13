@@ -19,6 +19,9 @@ class HomeState extends Equatable {
   final Map<String, bool> selectedCategories;
   final CleanupResult? cleanUpResult;
 
+  bool get areCategoriesSelected =>
+      selectedCategories.values.any((value) => value);
+
   HomeState copyWith({
     HomeTab? selectedTab,
     AnalysisResult? cleanUpAnalysis,

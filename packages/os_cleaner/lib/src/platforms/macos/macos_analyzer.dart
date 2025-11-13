@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:disk_usage/disk_usage.dart';
 import 'package:os_cleaner/src/core/core.dart';
@@ -18,29 +19,36 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     final systemInfo = results[0] as SystemInfo;
     final installedApps = results[1] as List<AppInfo>;
 
-    final categories = await Future.wait([
-      _scanSystemEssentials(),
-      _scanMacOSSystemCaches(),
-      _scanSandboxedApps(),
-      _scanBrowsers(),
-      _scanCloudStorage(),
-      _scanOfficeApps(),
-      _scanDeveloperTools(),
-      _scanExtendedDevTools(),
-      _scanApplications(),
-      _scanVirtualization(),
-      _scanOrphanedData(),
-    ]);
-
-    if (systemInfo.isAppleSilicon) {
-      categories.add(await _scanAppleSilicon());
-    }
+    final categories = await _getCategories(systemInfo);
 
     return AnalysisResult(
       categories: categories,
       analyzedAt: DateTime.now(),
       systemInfo: systemInfo,
       installedApps: installedApps,
+    );
+  }
+
+  static Future<List<CleanupCategory>> _getCategories(
+    SystemInfo systemInfo,
+  ) async {
+    final categoriesList = [
+      _scanSystemEssentials,
+      _scanMacOSSystemCaches,
+      _scanSandboxedApps,
+      _scanBrowsers,
+      _scanCloudStorage,
+      _scanOfficeApps,
+      _scanDeveloperTools,
+      _scanExtendedDevTools,
+      _scanApplications,
+      _scanVirtualization,
+      _scanOrphanedData,
+      if (systemInfo.isAppleSilicon) _scanAppleSilicon,
+    ];
+
+    return Future.wait(
+      categoriesList.map((category) => Isolate.run(() => category.call())),
     );
   }
 
@@ -78,7 +86,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
   }
 
   static Future<List<AppInfo>> _scanInstalledApps() async {
-    final apps = <AppInfo>[];
+    final appPaths = <String>[];
     final appLocations = [
       '/Applications',
       '$_homeDir/Applications',
@@ -91,16 +99,18 @@ class MacOSAnalyzer implements PlatformAnalyzer {
 
         for (final entity in dir.listSync(followLinks: false)) {
           if (entity.path.endsWith('.app')) {
-            final appInfo = await _getAppInfo(entity.path);
-            if (appInfo != null) {
-              apps.add(appInfo);
-            }
+            appPaths.add(entity.path);
           }
         }
       } catch (_) {}
     }
 
-    apps.sort((a, b) => b.totalSize.compareTo(a.totalSize));
+    final appInfos = await Future.wait(
+      appPaths.map((path) => Isolate.run(() => _getAppInfo(path))),
+    );
+
+    final apps = appInfos.whereType<AppInfo>().toList()
+      ..sort((a, b) => b.totalSize.compareTo(a.totalSize));
 
     return apps;
   }
@@ -114,42 +124,30 @@ class MacOSAnalyzer implements PlatformAnalyzer {
         return null;
       }
 
-      final bundleIdResult = await _run(
-        'defaults',
-        ['read', plistPath, 'CFBundleIdentifier'],
-      );
+      final plistContent = plistFile.readAsStringSync();
 
-      if (bundleIdResult.exitCode != 0) {
+      final bundleId = _extractPlistValue(plistContent, 'CFBundleIdentifier');
+      final name =
+          _extractPlistValue(plistContent, 'CFBundleName') ??
+          FileSystemService.getFileName(appPath).replaceAll('.app', '');
+
+      if (bundleId == null || bundleId.isEmpty || name.isEmpty) {
         return null;
       }
 
-      final bundleId = bundleIdResult.stdout.toString().trim();
-      if (bundleId.isEmpty) {
-        return null;
-      }
+      final results = await Future.wait([
+        Isolate.run(() => _findRelatedFiles(bundleId)),
+        Isolate.run(() => File(appPath).statSync().modified),
+      ]);
 
-      final nameResult = await _run(
-        'defaults',
-        ['read', plistPath, 'CFBundleName'],
-      );
+      final relatedPaths = results[0] as List<String>? ?? [];
+      final installDate = results[1] as DateTime?;
 
-      final name = nameResult.exitCode == 0
-          ? nameResult.stdout.toString().trim()
-          : FileSystemService.getFileName(appPath).replaceAll('.app', '');
-
-      final relatedPaths = await _findRelatedFiles(bundleId);
-
-      final appSize = await FileSystemService.calculateSize(appPath);
+      final appSize = FileSystemService.calculateSize(appPath);
       var relatedSize = 0;
       for (final path in relatedPaths) {
-        relatedSize += await FileSystemService.calculateSize(path);
+        relatedSize += FileSystemService.calculateSize(path);
       }
-
-      DateTime? installDate;
-      try {
-        final stat = File(appPath).statSync();
-        installDate = stat.modified;
-      } catch (_) {}
 
       return AppInfo(
         name: name,
@@ -162,6 +160,17 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     } catch (_) {
       return null;
     }
+  }
+
+  static String? _extractPlistValue(String plistContent, String key) {
+    final keyPattern = '<key>$key</key>';
+    final keyIndex = plistContent.indexOf(keyPattern);
+    if (keyIndex == -1) return null;
+
+    final afterKey = plistContent.substring(keyIndex + keyPattern.length);
+    final stringMatch = RegExp('<string>(.*?)</string>').firstMatch(afterKey);
+
+    return stringMatch?.group(1)?.trim();
   }
 
   static Future<List<String>> _findRelatedFiles(String bundleId) async {
@@ -192,7 +201,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     for (final location in searchLocations) {
       try {
         final pattern = '$location/$bundleId*';
-        final files = await FileSystemService.findFiles(pattern);
+        final files = FileSystemService.findFiles(pattern);
         relatedPaths.addAll(files);
       } catch (_) {}
     }
@@ -205,13 +214,9 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     return relatedPaths.toSet().toList();
   }
 
-  static Future<ProcessResult> _run(
-    String command,
-    List<String> args, {
-    Duration timeout = const Duration(seconds: 30),
-  }) async {
+  static ProcessResult _run(String command, List<String> args) {
     try {
-      return await Process.run(command, args).timeout(timeout);
+      return Process.runSync(command, args);
     } catch (e, stackTrace) {
       throw CleanupException(
         'Failed to run command: $command ${args.join(" ")}',
@@ -223,18 +228,21 @@ class MacOSAnalyzer implements PlatformAnalyzer {
 
   static Future<SystemInfo> _getSystemInfo() async {
     try {
-      final results = await Future.wait([
-        _getOSVersion(),
-        _getArchitecture(),
-        _getDiskInfo(),
-      ]);
+      final results = await Isolate.run(
+        () => [
+          _getOSVersion(),
+          _getArchitecture(),
+        ],
+      );
+
+      final diskInfo = await _getDiskInfo();
 
       return SystemInfo(
-        osVersion: results[0] as String,
-        architecture: results[1] as String,
+        osVersion: results[0],
+        architecture: results[1],
         homeDirectory: Platform.environment['HOME'] ?? '',
-        totalDiskSpace: (results[2] as Map<String, int>)['total'] ?? 0,
-        freeDiskSpace: (results[2] as Map<String, int>)['free'] ?? 0,
+        totalDiskSpace: diskInfo['total'] ?? 0,
+        freeDiskSpace: diskInfo['free'] ?? 0,
       );
     } catch (e, stackTrace) {
       throw AnalyzerException(
@@ -245,9 +253,9 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     }
   }
 
-  static Future<String> _getOSVersion() async {
+  static String _getOSVersion() {
     try {
-      final result = await Process.run('sw_vers', ['-productVersion']);
+      final result = Process.runSync('sw_vers', ['-productVersion']);
       if (result.exitCode == 0) {
         return result.stdout.toString().trim();
       }
@@ -257,9 +265,9 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     }
   }
 
-  static Future<String> _getArchitecture() async {
+  static String _getArchitecture() {
     try {
-      final result = await Process.run('uname', ['-m']);
+      final result = Process.runSync('uname', ['-m']);
       if (result.exitCode == 0) {
         return result.stdout.toString().trim();
       }
@@ -271,16 +279,18 @@ class MacOSAnalyzer implements PlatformAnalyzer {
 
   static Future<Map<String, int>> _getDiskInfo() async {
     try {
-      final totalSpace = await DiskUsage.space(DiskSpaceType.total);
-      final freeSpace = await DiskUsage.space(DiskSpaceType.free);
+      final results = await Future.wait([
+        DiskUsage.totalSpace(),
+        DiskUsage.freeSpace(),
+      ]);
 
-      return {'total': totalSpace ?? 0, 'free': freeSpace ?? 0};
+      return {'total': results[0] ?? 0, 'free': results[1] ?? 0};
     } catch (_) {
       return {'total': 0, 'free': 0};
     }
   }
 
-  static Future<CleanupCategory> _scanSystemEssentials() async {
+  static CleanupCategory _scanSystemEssentials() {
     final items = <CleanupItem>[];
 
     final paths = [
@@ -299,7 +309,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     ];
 
     for (final pattern in paths) {
-      items.addAll(await _scanPattern(pattern));
+      items.addAll(_scanPattern(pattern));
     }
 
     return CleanupCategory(
@@ -310,7 +320,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     );
   }
 
-  static Future<CleanupCategory> _scanMacOSSystemCaches() async {
+  static CleanupCategory _scanMacOSSystemCaches() {
     final items = <CleanupItem>[];
 
     final paths = [
@@ -325,7 +335,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     ];
 
     for (final pattern in paths) {
-      items.addAll(await _scanPattern(pattern));
+      items.addAll(_scanPattern(pattern));
     }
 
     return CleanupCategory(
@@ -336,7 +346,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     );
   }
 
-  static Future<CleanupCategory> _scanSandboxedApps() async {
+  static CleanupCategory _scanSandboxedApps() {
     final items = <CleanupItem>[];
 
     final paths = [
@@ -347,7 +357,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     ];
 
     for (final pattern in paths) {
-      items.addAll(await _scanPattern(pattern));
+      items.addAll(_scanPattern(pattern));
     }
 
     return CleanupCategory(
@@ -358,7 +368,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     );
   }
 
-  static Future<CleanupCategory> _scanBrowsers() async {
+  static CleanupCategory _scanBrowsers() {
     final items = <CleanupItem>[];
 
     final paths = [
@@ -377,7 +387,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     ];
 
     for (final pattern in paths) {
-      items.addAll(await _scanPattern(pattern));
+      items.addAll(_scanPattern(pattern));
     }
 
     return CleanupCategory(
@@ -389,7 +399,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     );
   }
 
-  static Future<CleanupCategory> _scanCloudStorage() async {
+  static CleanupCategory _scanCloudStorage() {
     final items = <CleanupItem>[];
 
     final paths = [
@@ -403,7 +413,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     ];
 
     for (final pattern in paths) {
-      items.addAll(await _scanPattern(pattern));
+      items.addAll(_scanPattern(pattern));
     }
 
     return CleanupCategory(
@@ -415,7 +425,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     );
   }
 
-  static Future<CleanupCategory> _scanOfficeApps() async {
+  static CleanupCategory _scanOfficeApps() {
     final items = <CleanupItem>[];
 
     final paths = [
@@ -430,7 +440,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     ];
 
     for (final pattern in paths) {
-      items.addAll(await _scanPattern(pattern));
+      items.addAll(_scanPattern(pattern));
     }
 
     return CleanupCategory(
@@ -441,7 +451,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     );
   }
 
-  static Future<CleanupCategory> _scanDeveloperTools() async {
+  static CleanupCategory _scanDeveloperTools() {
     final items = <CleanupItem>[];
 
     final paths = [
@@ -465,7 +475,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     ];
 
     for (final pattern in paths) {
-      items.addAll(await _scanPattern(pattern));
+      items.addAll(_scanPattern(pattern));
     }
 
     return CleanupCategory(
@@ -476,7 +486,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     );
   }
 
-  static Future<CleanupCategory> _scanExtendedDevTools() async {
+  static CleanupCategory _scanExtendedDevTools() {
     final items = <CleanupItem>[];
 
     final paths = [
@@ -572,7 +582,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     ];
 
     for (final pattern in paths) {
-      items.addAll(await _scanPattern(pattern));
+      items.addAll(_scanPattern(pattern));
     }
 
     return CleanupCategory(
@@ -584,7 +594,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     );
   }
 
-  static Future<CleanupCategory> _scanApplications() async {
+  static CleanupCategory _scanApplications() {
     final items = <CleanupItem>[];
 
     final paths = [
@@ -708,7 +718,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     ];
 
     for (final pattern in paths) {
-      items.addAll(await _scanPattern(pattern));
+      items.addAll(_scanPattern(pattern));
     }
 
     return CleanupCategory(
@@ -720,7 +730,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     );
   }
 
-  static Future<CleanupCategory> _scanVirtualization() async {
+  static CleanupCategory _scanVirtualization() {
     final items = <CleanupItem>[];
 
     final paths = [
@@ -731,7 +741,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     ];
 
     for (final pattern in paths) {
-      items.addAll(await _scanPattern(pattern));
+      items.addAll(_scanPattern(pattern));
     }
 
     return CleanupCategory(
@@ -742,7 +752,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     );
   }
 
-  static Future<CleanupCategory> _scanOrphanedData() async {
+  static CleanupCategory _scanOrphanedData() {
     final items = <CleanupItem>[];
 
     final orphanPaths = [
@@ -762,10 +772,10 @@ class MacOSAnalyzer implements PlatformAnalyzer {
       '$_homeDir/Library/Cookies/*.binarycookies',
     ];
 
-    final installedBundleIds = await _getInstalledBundleIds();
+    final installedBundleIds = _getInstalledBundleIds();
 
     for (final pattern in orphanPaths) {
-      final files = await FileSystemService.findFiles(pattern);
+      final files = FileSystemService.findFiles(pattern);
 
       for (final file in files) {
         if (file.contains('/Containers/')) {
@@ -781,13 +791,13 @@ class MacOSAnalyzer implements PlatformAnalyzer {
 
         if (!installedBundleIds.contains(bundleId) &&
             !_isSystemBundle(bundleId)) {
-          final lastModified = await FileSystemService.getLastModified(file);
+          final lastModified = FileSystemService.getLastModified(file);
           if (lastModified != null) {
             final daysSinceModified = DateTime.now()
                 .difference(lastModified)
                 .inDays;
             if (daysSinceModified > MacOSConstants.orphanDataAgeDays) {
-              final size = await FileSystemService.calculateSize(file);
+              final size = FileSystemService.calculateSize(file);
               if (size > 0) {
                 items.add(
                   CleanupItem(
@@ -813,7 +823,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     );
   }
 
-  static Future<CleanupCategory> _scanAppleSilicon() async {
+  static CleanupCategory _scanAppleSilicon() {
     final items = <CleanupItem>[];
 
     final paths = [
@@ -822,7 +832,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     ];
 
     for (final pattern in paths) {
-      items.addAll(await _scanPattern(pattern));
+      items.addAll(_scanPattern(pattern));
     }
 
     return CleanupCategory(
@@ -833,11 +843,11 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     );
   }
 
-  static Future<List<CleanupItem>> _scanPattern(String pattern) async {
+  static List<CleanupItem> _scanPattern(String pattern) {
     final items = <CleanupItem>[];
 
     try {
-      final files = await FileSystemService.findFiles(pattern);
+      final files = FileSystemService.findFiles(pattern);
 
       for (final file in files) {
         // TODO: Add whitelist service
@@ -845,11 +855,11 @@ class MacOSAnalyzer implements PlatformAnalyzer {
         //   continue;
         // }
 
-        final size = await FileSystemService.calculateSize(file);
+        final size = FileSystemService.calculateSize(file);
         if (size == 0) continue;
 
         final lastModified =
-            await FileSystemService.getLastModified(file) ?? DateTime.now();
+            FileSystemService.getLastModified(file) ?? DateTime.now();
 
         items.add(
           CleanupItem(
@@ -866,7 +876,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     return items;
   }
 
-  static Future<Set<String>> _getInstalledBundleIds() async {
+  static Set<String> _getInstalledBundleIds() {
     final bundleIds = <String>{};
     final appLocations = [
       '/Applications',
@@ -889,14 +899,14 @@ class MacOSAnalyzer implements PlatformAnalyzer {
         final dir = Directory(location);
         if (!dir.existsSync()) continue;
 
-        await for (final entity in dir.list(followLinks: false)) {
+        for (final entity in dir.listSync(followLinks: false)) {
           if (entity.path.endsWith('.app')) {
             final plistPath = '${entity.path}/Contents/Info.plist';
             final plistFile = File(plistPath);
 
             if (plistFile.existsSync()) {
               try {
-                final result = await _run(
+                final result = _run(
                   'defaults',
                   ['read', plistPath, 'CFBundleIdentifier'],
                 );
@@ -919,14 +929,14 @@ class MacOSAnalyzer implements PlatformAnalyzer {
         final dir = Directory(path);
         if (!dir.existsSync()) continue;
 
-        await for (final entity in dir.list(followLinks: false)) {
+        for (final entity in dir.listSync(followLinks: false)) {
           if (entity.path.endsWith('.app')) {
             final plistPath = '${entity.path}/Contents/Info.plist';
             final plistFile = File(plistPath);
 
             if (plistFile.existsSync()) {
               try {
-                final result = await _run(
+                final result = _run(
                   'defaults',
                   ['read', plistPath, 'CFBundleIdentifier'],
                 );
@@ -945,7 +955,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     }
 
     try {
-      final result = await _run(
+      final result = _run(
         'mdfind',
         ["kMDItemKind == 'Application'"],
       );
@@ -960,7 +970,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
 
           if (plistFile.existsSync()) {
             try {
-              final bundleResult = await _run(
+              final bundleResult = _run(
                 'defaults',
                 ['read', plistPath, 'CFBundleIdentifier'],
               );
@@ -978,7 +988,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
     } catch (_) {}
 
     try {
-      final result = await _run(
+      final result = _run(
         'osascript',
         [
           '-e',
@@ -1007,7 +1017,7 @@ class MacOSAnalyzer implements PlatformAnalyzer {
         final dir = Directory(path);
         if (!dir.existsSync()) continue;
 
-        await for (final entity in dir.list(followLinks: false)) {
+        for (final entity in dir.listSync(followLinks: false)) {
           if (entity.path.endsWith('.plist')) {
             final fileName = FileSystemService.getFileName(entity.path);
             final bundleId = fileName.replaceAll('.plist', '');

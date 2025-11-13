@@ -3,26 +3,26 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 class FileSystemService {
-  static Future<int> calculateSize(String path) async {
+  static int calculateSize(String path) {
     try {
       final type = _safeTypeOf(path);
 
       if (type == FileSystemEntityType.notFound) return 0;
 
       if (type == FileSystemEntityType.file) {
-        return await File(path).length();
+        return File(path).lengthSync();
       }
 
       if (type == FileSystemEntityType.directory) {
         var totalSize = 0;
 
-        await for (final entity in Directory(path).list(
+        for (final entity in Directory(path).listSync(
           recursive: true,
           followLinks: false,
         )) {
           if (entity is File) {
             try {
-              totalSize += await entity.length();
+              totalSize += entity.lengthSync();
             } catch (_) {}
           }
         }
@@ -60,7 +60,7 @@ class FileSystemService {
     }
   }
 
-  static Future<List<String>> findFiles(String pattern) async {
+  static List<String> findFiles(String pattern) {
     try {
       final expandedPattern = expandPath(pattern);
 
@@ -132,7 +132,7 @@ class FileSystemService {
     }
   }
 
-  static Future<DateTime?> getLastModified(String path) async {
+  static DateTime? getLastModified(String path) {
     try {
       final type = _safeTypeOf(path);
 

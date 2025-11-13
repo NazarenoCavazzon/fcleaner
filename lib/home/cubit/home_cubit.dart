@@ -44,11 +44,29 @@ class HomeCubit extends Cubit<HomeState> {
     final categories = state.cleanUpAnalysis.categories
         .where((category) => state.selectedCategories[category.id] ?? false)
         .toList();
+
     final result = osCleaner.clean(
       analysis: state.cleanUpAnalysis,
       categoryIds: categories.map((category) => category.id).toList(),
     );
-    emit(state.copyWith(cleanUpResult: result));
+
+    final newCleanUpAnalysis = state.cleanUpAnalysis.copyWith(
+      categories: state.cleanUpAnalysis.categories
+          .where(
+            (category) => !categories
+                .map((category) => category.id)
+                .contains(category.id),
+          )
+          .toList(),
+    );
+
+    emit(
+      state.copyWith(
+        cleanUpResult: result,
+        cleanUpAnalysis: newCleanUpAnalysis,
+        selectedCategories: const {},
+      ),
+    );
   }
 
   final OSCleaner osCleaner;

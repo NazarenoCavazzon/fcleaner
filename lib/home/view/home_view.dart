@@ -35,39 +35,41 @@ class HomeView extends StatelessWidget {
     return Scaffold(
       body: Padding(
         padding: const EdgeInsets.all(24),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'FCleaner',
-                style: TextStyle(
-                  fontSize: 36,
-                  fontWeight: FontWeight.w600,
-                  height: 1.2,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'FCleaner',
+              style: TextStyle(
+                fontSize: 36,
+                fontWeight: FontWeight.w600,
+                height: 1.2,
+              ),
+            ),
+            Text(
+              'Keep your Mac running smoothly',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w400,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const HomeTabBar(),
+            Expanded(
+              child: SingleChildScrollView(
+                child: BlocBuilder<HomeCubit, HomeState>(
+                  builder: (context, state) {
+                    return switch (state.selectedTab) {
+                      HomeTab.overview => const OverviewView(),
+                      HomeTab.cleanup => const SystemCleanupView(),
+                      HomeTab.uninstall => const SizedBox(),
+                    };
+                  },
                 ),
               ),
-              Text(
-                'Keep your Mac running smoothly',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w400,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const HomeTabBar(),
-              BlocBuilder<HomeCubit, HomeState>(
-                builder: (context, state) {
-                  return switch (state.selectedTab) {
-                    HomeTab.overview => const OverviewView(),
-                    HomeTab.cleanup => const SystemCleanupView(),
-                    HomeTab.uninstall => const SizedBox(),
-                  };
-                },
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
