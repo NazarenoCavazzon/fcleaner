@@ -1,31 +1,26 @@
-import 'package:fcleaner/cleanup/models/analysis_result.dart';
-import 'package:fcleaner/cleanup/models/cleanup_preview.dart';
 import 'package:fcleaner/home/cubit/home_cubit.dart';
+import 'package:fcleaner/home/view/overview_view.dart';
+import 'package:fcleaner/home/view/system_cleanup_view.dart';
 import 'package:fcleaner/home/widgets/widgets.dart';
-import 'package:fcleaner/uninstall/models/app_info.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:os_cleaner/os_cleaner.dart';
 
 class Home extends StatelessWidget {
   const Home({
     required this.cleanUpAnalysis,
-    required this.cleanupPreview,
-    required this.uninstallAnalysis,
     super.key,
   });
 
   static String get route => '/';
   final AnalysisResult cleanUpAnalysis;
-  final CleanupPreview cleanupPreview;
-  final List<AppInfo> uninstallAnalysis;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (context) => HomeCubit(
         cleanUpAnalysis: cleanUpAnalysis,
-        cleanupPreview: cleanupPreview,
-        uninstallAnalysis: uninstallAnalysis,
+        osCleaner: context.read<OSCleaner>(),
       ),
       child: const HomeView(),
     );
@@ -61,10 +56,16 @@ class HomeView extends StatelessWidget {
                 ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 24),
-              const StorageOverview(),
-              const SizedBox(height: 24),
-              const InfoCards(),
+              const HomeTabBar(),
+              BlocBuilder<HomeCubit, HomeState>(
+                builder: (context, state) {
+                  return switch (state.selectedTab) {
+                    HomeTab.overview => const OverviewView(),
+                    HomeTab.cleanup => const SystemCleanupView(),
+                    HomeTab.uninstall => const SizedBox(),
+                  };
+                },
+              ),
             ],
           ),
         ),

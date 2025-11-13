@@ -1,21 +1,25 @@
 import 'package:fcleaner/analyze/analyze.dart';
-import 'package:fcleaner/shared/services/service_provider.dart';
-import 'package:fcleaner/cleanup/models/analysis_result.dart';
-import 'package:fcleaner/cleanup/models/cleanup_preview.dart';
+
 import 'package:fcleaner/home/home.dart';
 import 'package:fcleaner/l10n/gen/app_localizations.dart';
-import 'package:fcleaner/uninstall/models/app_info.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:os_cleaner/os_cleaner.dart';
 
 class App extends StatelessWidget {
-  const App({super.key});
+  const App({
+    required this.platformCleaner,
+    super.key,
+  });
+
+  final PlatformCleaner platformCleaner;
 
   @override
   Widget build(BuildContext context) {
     return RepositoryProvider(
-      create: (context) => ServiceProvider(),
+      create: (context) => OSCleaner(platformCleaner),
       child: const AppView(),
     );
   }
@@ -36,7 +40,6 @@ class _AppViewState extends State<AppView> {
   void initState() {
     super.initState();
     _routerConfig = _getRouter(context);
-    context.read<ServiceProvider>().initialize();
   }
 
   @override
@@ -102,8 +105,6 @@ class _AppViewState extends State<AppView> {
             return Home(
               key: state.pageKey,
               cleanUpAnalysis: params!['cleanUpAnalysis'] as AnalysisResult,
-              cleanupPreview: params['cleanupPreview'] as CleanupPreview,
-              uninstallAnalysis: params['uninstallAnalysis'] as List<AppInfo>,
             );
           },
         ),

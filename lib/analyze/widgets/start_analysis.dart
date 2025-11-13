@@ -45,14 +45,13 @@ class StartAnalysis extends StatelessWidget {
                   Home.route,
                   extra: {
                     'cleanUpAnalysis': state.cleanUpAnalysis,
-                    'cleanupPreview': state.cleanupPreview,
-                    'uninstallAnalysis': state.uninstallAnalysis,
                   },
                 );
               }
             },
 
             builder: (context, state) {
+              /// TODO: Add a custom button widget
               return MaterialButton(
                 splashColor: Colors.transparent,
                 focusElevation: 0,

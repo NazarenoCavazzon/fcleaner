@@ -20,6 +20,8 @@ dependencies:
   go_router: ^16.3.0
   intl: ^0.20.2
   material_symbols_icons: ^4.2874.0
+  os_cleaner:
+    path: packages/os_cleaner
   path: ^1.9.0
   ui:
     path: packages/ui

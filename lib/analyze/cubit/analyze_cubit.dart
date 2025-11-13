@@ -1,35 +1,22 @@
 import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
-import 'package:fcleaner/shared/services/service_provider.dart';
-import 'package:fcleaner/cleanup/models/analysis_result.dart';
-import 'package:fcleaner/cleanup/models/cleanup_preview.dart';
-import 'package:fcleaner/uninstall/models/app_info.dart';
+import 'package:os_cleaner/os_cleaner.dart';
 
 part 'analyze_state.dart';
 
 class AnalyzeCubit extends Cubit<AnalyzeState> {
-  AnalyzeCubit(this.serviceProvider) : super(const AnalyzeState());
+  AnalyzeCubit(this.osCleaner) : super(const AnalyzeState());
 
   Future<void> analyze() async {
     emit(state.copyWith(status: AnalyzeStatus.analyzing));
 
     try {
-      final results = await Future.wait([
-        serviceProvider.cleanupService.analyzeSystem(),
-        serviceProvider.uninstallService.getInstalledApps(),
-      ]);
-      final cleanUpAnalysis = results[0] as AnalysisResult;
-      final cleanupPreview = cleanUpAnalysis.getPreview(
-        cleanUpAnalysis.categories.map((e) => e.id).toList(),
-      );
-      final uninstallAnalysis = results[1] as List<AppInfo>;
+      final analysis = await osCleaner.analyze();
 
       emit(
         state.copyWith(
           status: AnalyzeStatus.analyzed,
-          cleanUpAnalysis: cleanUpAnalysis,
-          cleanupPreview: cleanupPreview,
-          uninstallAnalysis: uninstallAnalysis,
+          cleanUpAnalysis: analysis,
         ),
       );
     } catch (e) {
@@ -37,5 +24,5 @@ class AnalyzeCubit extends Cubit<AnalyzeState> {
     }
   }
 
-  final ServiceProvider serviceProvider;
+  final OSCleaner osCleaner;
 }

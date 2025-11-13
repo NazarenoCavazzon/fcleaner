@@ -1,8 +1,8 @@
 import 'package:fcleaner/analyze/cubit/analyze_cubit.dart';
 import 'package:fcleaner/analyze/widgets/widgets.dart';
-import 'package:fcleaner/shared/services/service_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:os_cleaner/os_cleaner.dart';
 
 class AnalyzePage extends StatelessWidget {
   const AnalyzePage({super.key});
@@ -12,7 +12,7 @@ class AnalyzePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (context) => AnalyzeCubit(context.read<ServiceProvider>()),
+      create: (context) => AnalyzeCubit(context.read<OSCleaner>()),
       child: const AnalyzeView(),
     );
   }

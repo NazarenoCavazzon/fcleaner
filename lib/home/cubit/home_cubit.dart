@@ -1,21 +1,55 @@
 import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
-import 'package:fcleaner/cleanup/models/analysis_result.dart';
-import 'package:fcleaner/cleanup/models/cleanup_preview.dart';
-import 'package:fcleaner/uninstall/models/app_info.dart';
+import 'package:os_cleaner/os_cleaner.dart';
 
 part 'home_state.dart';
 
 class HomeCubit extends Cubit<HomeState> {
   HomeCubit({
     required AnalysisResult cleanUpAnalysis,
-    required CleanupPreview cleanupPreview,
-    required List<AppInfo> uninstallAnalysis,
+    required this.osCleaner,
   }) : super(
          HomeState(
            cleanUpAnalysis: cleanUpAnalysis,
-           cleanupPreview: cleanupPreview,
-           uninstallAnalysis: uninstallAnalysis,
          ),
        );
+
+  void selectTab(HomeTab? tab) {
+    emit(state.copyWith(selectedTab: tab));
+  }
+
+  void selectCategory(String categoryId) {
+    emit(
+      state.copyWith(
+        selectedCategories: {
+          ...state.selectedCategories,
+          categoryId: !(state.selectedCategories[categoryId] ?? false),
+        },
+      ),
+    );
+  }
+
+  void unselectCategory(String categoryId) {
+    emit(
+      state.copyWith(
+        selectedCategories: {
+          ...state.selectedCategories,
+          categoryId: false,
+        },
+      ),
+    );
+  }
+
+  void cleanUp() {
+    final categories = state.cleanUpAnalysis.categories
+        .where((category) => state.selectedCategories[category.id] ?? false)
+        .toList();
+    final result = osCleaner.clean(
+      analysis: state.cleanUpAnalysis,
+      categoryIds: categories.map((category) => category.id).toList(),
+    );
+    emit(state.copyWith(cleanUpResult: result));
+  }
+
+  final OSCleaner osCleaner;
 }

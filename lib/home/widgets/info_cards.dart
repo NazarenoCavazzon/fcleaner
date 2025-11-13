@@ -1,11 +1,9 @@
-import 'package:fcleaner/cleanup/models/analysis_result.dart';
 import 'package:fcleaner/home/cubit/home_cubit.dart';
-import 'package:fcleaner/shared/utils/byte_formatter.dart';
-import 'package:fcleaner/uninstall/models/app_info.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:os_cleaner/os_cleaner.dart';
 import 'package:ui/ui.dart';
 
 class InfoCards extends StatelessWidget {
@@ -15,7 +13,7 @@ class InfoCards extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.read<HomeCubit>().state;
     final analysisResult = state.cleanUpAnalysis;
-    final listAppsInfo = state.uninstallAnalysis;
+    final listAppsInfo = analysisResult.installedApps;
 
     final cards = _buildInfoCards(
       analysisResult: analysisResult,
